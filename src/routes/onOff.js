@@ -4,6 +4,7 @@ import express from 'express';
 const router = express.Router();
 const onoffController = new OnoffController();
 
-router.get('/:type', onoffController.index);
+router.get('/:slug', onoffController.getAllProductInPage);
+router.get('/:slug/:id', onoffController.getDetailProduct);
 
 export default router;

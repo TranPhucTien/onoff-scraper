@@ -12,7 +12,7 @@ const port = process.env.PORT || 5000;
 app.use(express.json());
 
 app.get('/', (req, res) => {
-    res.status(200).json({ success: true });
+    res.status(200).json({ success: true, link: `http://localhost:${port}/api/nam.html` });
 });
 
 routes(app);
