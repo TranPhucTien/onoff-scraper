@@ -10,12 +10,12 @@ const port = process.env.PORT || 5000;
 
 // apply middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+routes(app);
 app.get('/', (req, res) => {
     res.status(200).json({ success: true, link: `http://localhost:${port}/api/nam.html` });
 });
-
-routes(app);
 
 // Catch 404
 app.use((req, res, next) => {
