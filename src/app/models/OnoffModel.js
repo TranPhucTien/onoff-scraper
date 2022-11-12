@@ -1,11 +1,12 @@
 import axios from 'axios';
+import puppeteer from 'puppeteer';
 import cheerio from 'cheerio';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const port = process.env.PORT || 5000;
-const localUrl = `http://localhost:${port}/api`;
+const localUrl = `http://localhost:${port}`;
 
 const OnoffModel = {
     async getEndPage({ url, reqParams }) {
@@ -19,29 +20,31 @@ const OnoffModel = {
             promises.push(
                 axios(url + reqParams, {
                     params: { p: i },
-                }).then((response) => {
-                    const html = response.data;
-                    const $ = cheerio.load(html);
+                })
+                    .then((response) => {
+                        const html = response.data;
+                        const $ = cheerio.load(html);
 
-                    $(
-                        '#wrapper-product-list > .toolbar-products > .pages > ul',
-                    ).each(function () {
-                        const classOfLastLi = $(this)
-                            .find('li.item')
-                            .last()
-                            .attr('class');
+                        $(
+                            '#wrapper-product-list > .toolbar-products > .pages > ul',
+                        ).each(function () {
+                            const classOfLastLi = $(this)
+                                .find('li.item')
+                                .last()
+                                .attr('class');
 
-                        isEndPage = classOfLastLi === 'item current';
+                            isEndPage = classOfLastLi === 'item current';
 
-                        if (isEndPage) {
-                            endPage = i;
-                            return;
-                        }
-                    });
-                }).catch(error => {
-                    endPage = null;
-                    console.log(error)
-                }),
+                            if (isEndPage) {
+                                endPage = i;
+                                return;
+                            }
+                        });
+                    })
+                    .catch((error) => {
+                        endPage = null;
+                        console.log(error);
+                    }),
             );
 
             if (isEndPage) return;
@@ -71,6 +74,50 @@ const OnoffModel = {
         });
 
         return { totalProduct: totalProduct + productLengthLastPage };
+    },
+
+    async getThumbListProduct({
+        url,
+        reqParams,
+        _page,
+        category,
+        color,
+        size,
+        materials,
+        product_list_order,
+    }) {
+        const browser = await puppeteer.launch();
+        const page = await browser.newPage();
+        await page.goto(`${url}/${reqParams}`);
+
+        const thumbnailList = await page.evaluate(() => {
+            let detailListDom = document.querySelectorAll(
+                '.product-item-details',
+            );
+            detailListDom = [...detailListDom];
+
+            let thumbnailList = detailListDom.map((thumbnail) => {
+                const childThumb = [];
+
+                thumbnail
+                    .querySelectorAll('.swatch-option.image')
+                    .forEach((option) => {
+                        childThumb.push({
+                            thumb: option
+                                .querySelector('img')
+                                ?.getAttribute('src'),
+                            id: option?.getAttribute('option-label'),
+                        });
+                    });
+
+                return childThumb;
+            });
+
+            return thumbnailList;
+        });
+
+        await page.close();
+        return thumbnailList;
     },
 
     async getAllProductInPage({
@@ -137,7 +184,7 @@ const OnoffModel = {
                             const slugId = link.split('/').slice(-1);
 
                             productList.push({
-                                link: `${localUrl}/${reqParams}/${slugId}`,
+                                link: `${localUrl}/api/detail/${slugId}`,
                                 image: image ? image : '',
                                 imageHover: imageHover ? imageHover : '',
                                 label: label ? label : '',
@@ -148,6 +195,13 @@ const OnoffModel = {
                         });
                 });
             });
+
+            const thumbList = await this.getThumbListProduct({url, reqParams})
+
+            for (let i = 0; i < productList.length; i++) {
+                productList[i] = {...productList[i], thumbList: thumbList[i]}
+            }
+
             return productList;
         } catch (error) {
             console.log(error);
@@ -165,22 +219,23 @@ const OnoffModel = {
                 const $ = cheerio.load(html);
 
                 const breakCrumb = [];
-                $('.breadcrumbs > .items > li:not(:last-child)', html).each(
-                    function () {
-                        const text = $(this).find('a').text().trim() || '';
-                        const slugName =
-                            $(this)
-                                .find('a')
-                                .attr('href')
-                                ?.split('/')
-                                .slice(-1)
-                                .join('') || '';
-                        breakCrumb.push({
-                            text,
-                            link: `${localUrl}/${slugName}`,
-                        });
-                    },
-                );
+                $(
+                    '.breadcrumbs > .items > li:not(:last-child, :first-child)',
+                    html,
+                ).each(function () {
+                    const text = $(this).find('a').text().trim() || '';
+                    const slugName =
+                        $(this)
+                            .find('a')
+                            .attr('href')
+                            ?.split('/')
+                            .slice(-1)
+                            .join('') || '';
+                    breakCrumb.push({
+                        text,
+                        slug: `${slugName}`,
+                    });
+                });
 
                 const name = $('.product-info-main', html)
                     .find('div:first-child > h1 > span')

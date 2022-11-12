@@ -1,5 +1,7 @@
+import { parse } from 'node-html-parser';
 import dotenv from 'dotenv';
 import OnoffModel from '../models/OnoffModel.js';
+import axios from 'axios';
 
 dotenv.config();
 
@@ -41,18 +43,18 @@ class OnoffController {
             materials: _materials,
             product_list_order: _product_list_order,
         });
-
-        // const {totalProduct} = await OnoffModel.getTotalProduct({url, reqParams: slug, endPage})
-
         if (!productList) {
             return res.status(404).json({ success: false });
         }
+
+        // const {totalProduct} = await OnoffModel.getTotalProduct({url, reqParams: slug, endPage})
+
         return res
             .status(200)
             .json({ currentPage, endPage: _endPage, productList });
     }
 
-    // [GET] /api/:slugName/:slugId
+    // [GET] /api/detail/:slugId
     async getDetailProduct(req, res) {
         const slugId = req.params.slugId;
 
@@ -65,6 +67,26 @@ class OnoffController {
             return res.status(404).json({ success: false });
         }
         return res.status(200).json({ ...detailList });
+    }
+
+    // [GET] /api/nodeHtmlParse
+    nodeHtmlParse(req, res) {
+        axios('https://onoff.vn/nam.html').then((response) => {
+            const html = response.data;
+            const document = parse(html);
+
+            let titleLinks = document.querySelectorAll('.product-item-details');
+            titleLinks = [...titleLinks];
+            let articles = titleLinks.map((link) => ({
+                title: link
+                    .querySelector('div:first-child > div')
+                    // .querySelector('img')
+                    ?.getAttribute('class'),
+                // url: link.getAttribute('href')
+            }));
+
+            res.json({ articles });
+        });
     }
 }
 
