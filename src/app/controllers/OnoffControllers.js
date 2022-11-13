@@ -4,13 +4,12 @@ import OnoffModel from '../models/OnoffModel.js';
 dotenv.config();
 
 const url = process.env.URL || 'https://onoff.vn/';
-
 class OnoffController {
     // [GET] /api/:slugName
     async getAllProductInPage(req, res) {
         const { p, cat, mastercolor, size, materials, product_list_order } =
             req.query;
-        const currentPage = p ? p : 1;
+        const currentPage = p ? Number(p) : 1;
         const _cat = cat !== 'undefined' ? cat : '';
         const _color = mastercolor !== 'undefined' ? mastercolor : '';
         const _size = size !== 'undefined' ? size : '';
@@ -19,7 +18,7 @@ class OnoffController {
             product_list_order !== 'undefined' ? product_list_order : '';
         const slug = req.params.slugName;
 
-        const productList = await OnoffModel.getAllProductInPage({
+        const { productList, lastPage } = await OnoffModel.getAllProductInPage({
             url,
             reqParams: slug,
             page: currentPage,
@@ -34,9 +33,9 @@ class OnoffController {
             return res.status(404).json({ success: false });
         }
 
-        // const {totalProduct} = await OnoffModel.getTotalProduct({url, reqParams: slug, endPage})
-
-        return res.status(200).json({ currentPage, productList });
+        return res
+            .status(200)
+            .json({ currentPage, lastPage, data: productList });
     }
 
     // [GET] /api/detail/:slugId
@@ -51,7 +50,19 @@ class OnoffController {
         if (!detailList) {
             return res.status(404).json({ success: false });
         }
+
         return res.status(200).json({ ...detailList });
+    }
+
+    // [GET] /api/detail/hardData/:slugId
+    async getHardDataDetail(req, res) {
+        const slugId = req.params.slugId;
+
+        const { listOption } = await OnoffModel.getHardDataDetail({
+            url,
+            reqParams: slugId,
+        });
+        res.status(200).json({ listOption });
     }
 
     // [GET] /api/endPage/:slugName

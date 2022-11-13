@@ -1,6 +1,7 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { parse } from 'node-html-parser';
+import puppeteer from 'puppeteer';
 
 dotenv.config();
 
@@ -104,6 +105,7 @@ const OnoffModel = {
         product_list_order,
     }) {
         const productList = [];
+        let lastPage = 1;
 
         try {
             await axios(url + reqParams, {
@@ -168,6 +170,24 @@ const OnoffModel = {
 
                                 const slugId = link.split('/').slice(-1);
 
+                                const pagination = document.querySelector(
+                                    '#wrapper-product-list > .toolbar-products > .pages',
+                                );
+
+                                if (pagination) {
+                                    lastPage =
+                                        pagination
+                                            .querySelector('ul > li:last-child')
+                                            ?.getAttribute('class') ===
+                                        'item pages-item-next'
+                                            ? pagination.querySelector(
+                                                  'ul > li:nth-last-child(2) > a > span:last-child',
+                                              )?.textContent
+                                            : pagination.querySelector(
+                                                  'ul > li:last-child> strong > span:last-child',
+                                              )?.textContent;
+                                }
+
                                 productList.push({
                                     link: `${localUrl}/api/detail/${slugId}`,
                                     image: image ? image : '',
@@ -181,7 +201,7 @@ const OnoffModel = {
                     });
             });
 
-            return productList;
+            return { productList, lastPage: Number(lastPage) };
         } catch (error) {
             console.log(error);
             return { success: false };
@@ -190,7 +210,7 @@ const OnoffModel = {
 
     async getDetailList({ url, reqParams }) {
         const detailList = [];
-        const detail = {};
+        const data = {};
 
         try {
             await axios(url + reqParams).then((response) => {
@@ -360,14 +380,60 @@ const OnoffModel = {
             });
 
             for (const property in detailList[0]) {
-                detail[property] = detailList[0][property] || '';
+                data[property] = detailList[0][property] || '';
             }
 
-            return detail;
+            return data;
         } catch (error) {
             console.log(error);
             return { success: false };
         }
+    },
+
+    async getHardDataDetail({ url, reqParams }) {
+        const browser = await puppeteer.launch();
+        const page = await browser.newPage();
+        await page.goto(url + reqParams, { waitUntil: 'networkidle2' });
+
+        const listOption = await page.evaluate(() => {
+            const color = [];
+            const size = [];
+            const gallery = [];
+
+            document
+                .querySelectorAll(
+                    '.swatch-attribute.color > div > .swatch-option.image',
+                )
+                .forEach((item) => {
+                    const image = item.getAttribute('option-tooltip-value');
+                    const id = item.getAttribute('aria-label')
+                    color.push({ id, image });
+                });
+
+            document
+                .querySelectorAll(
+                    '.swatch-attribute.size > div > .swatch-option',
+                )
+                .forEach((item) => {
+                    const isDisabled = item.classList.contains('disabled');
+                    const sizeLabel = item.getAttribute('option-label');
+
+                    size.push({ isDisabled, size: sizeLabel });
+                });
+
+            document
+                .querySelectorAll(
+                    '.fotorama__stage__shaft.fotorama__grab > div',
+                )
+                .forEach((item) => {
+                    gallery.push(item.getAttribute('href'));
+                });
+
+            return { gallery, color, size };
+        });
+
+        await browser.close();
+        return { listOption };
     },
 };
 
