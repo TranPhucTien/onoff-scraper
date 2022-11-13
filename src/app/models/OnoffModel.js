@@ -1,7 +1,6 @@
 import axios from 'axios';
-import puppeteer from 'puppeteer';
-import cheerio from 'cheerio';
 import dotenv from 'dotenv';
+import { parse } from 'node-html-parser';
 
 dotenv.config();
 
@@ -9,37 +8,57 @@ const port = process.env.PORT || 5000;
 const localUrl = `http://localhost:${port}`;
 
 const OnoffModel = {
-    async getEndPage({ url, reqParams }) {
-        const maxPage = 10;
-        const firstPage = 1;
-        let promises = [];
-        let isEndPage;
+    async getEndPage({
+        url,
+        reqParams,
+        category,
+        color,
+        size,
+        materials,
+        product_list_order,
+    }) {
+        let firstPage = 1;
+        const maxPage = 20;
+        const promises = [];
+        let isEndPage = false;
         let endPage;
 
         for (let i = firstPage; i < maxPage; i++) {
             promises.push(
                 axios(url + reqParams, {
-                    params: { p: i },
+                    params: {
+                        p: i,
+                        cat: category,
+                        mastercolor: color,
+                        size,
+                        materials,
+                        product_list_order,
+                    },
                 })
                     .then((response) => {
                         const html = response.data;
-                        const $ = cheerio.load(html);
+                        const document = parse(html);
 
-                        $(
-                            '#wrapper-product-list > .toolbar-products > .pages > ul',
-                        ).each(function () {
-                            const classOfLastLi = $(this)
-                                .find('li.item')
-                                .last()
-                                .attr('class');
+                        const hasPagination = document.querySelector(
+                            '#wrapper-product-list > .toolbar-products > .pages',
+                        );
+                        if (!hasPagination) {
+                            endPage = 1;
+                            isEndPage = true;
+                            return;
+                        }
 
-                            isEndPage = classOfLastLi === 'item current';
+                        const classOfLastLi = document
+                            .querySelector(
+                                '#wrapper-product-list > .toolbar-products > .pages > ul > li:last-child',
+                            )
+                            ?.getAttribute('class');
+                        isEndPage = classOfLastLi === 'item current';
 
-                            if (isEndPage) {
-                                endPage = i;
-                                return;
-                            }
-                        });
+                        if (isEndPage) {
+                            endPage = i;
+                            return;
+                        }
                     })
                     .catch((error) => {
                         endPage = null;
@@ -47,12 +66,10 @@ const OnoffModel = {
                     }),
             );
 
-            if (isEndPage) return;
+            if (isEndPage) break;
         }
 
-        return await Promise.all(promises).then(() => ({
-            endPage: endPage ? endPage : null,
-        }));
+        return await Promise.all(promises).then(() => endPage);
     },
 
     async getTotalProduct({ url, reqParams, endPage }) {
@@ -66,58 +83,14 @@ const OnoffModel = {
             },
         }).then((response) => {
             const html = response.data;
-            const $ = cheerio.load(html);
+            const document = parse(html);
 
-            productLengthLastPage = $('.product-items', html).find(
-                'li.product-item',
-            ).length;
+            productLengthLastPage = document
+                .querySelector('.product-items')
+                .querySelector('li.product-item').length;
         });
 
         return { totalProduct: totalProduct + productLengthLastPage };
-    },
-
-    async getThumbListProduct({
-        url,
-        reqParams,
-        _page,
-        category,
-        color,
-        size,
-        materials,
-        product_list_order,
-    }) {
-        const browser = await puppeteer.launch();
-        const page = await browser.newPage();
-        await page.goto(`${url}/${reqParams}`);
-
-        const thumbnailList = await page.evaluate(() => {
-            let detailListDom = document.querySelectorAll(
-                '.product-item-details',
-            );
-            detailListDom = [...detailListDom];
-
-            let thumbnailList = detailListDom.map((thumbnail) => {
-                const childThumb = [];
-
-                thumbnail
-                    .querySelectorAll('.swatch-option.image')
-                    .forEach((option) => {
-                        childThumb.push({
-                            thumb: option
-                                .querySelector('img')
-                                ?.getAttribute('src'),
-                            id: option?.getAttribute('option-label'),
-                        });
-                    });
-
-                return childThumb;
-            });
-
-            return thumbnailList;
-        });
-
-        await page.close();
-        return thumbnailList;
     },
 
     async getAllProductInPage({
@@ -144,63 +117,69 @@ const OnoffModel = {
                 },
             }).then((response) => {
                 const html = response.data;
-                const $ = cheerio.load(html);
+                const document = parse(html);
 
-                $('.product-items', html).each(function () {
-                    $(this)
-                        .find('li.product-item')
-                        .each(function () {
-                            const image = $(this)
-                                .find('.product-item-info')
-                                .find('.product-image-wrapper.front > img')
-                                .attr('data-src');
-                            const imageHover = $(this)
-                                .find('.product-item-info')
-                                .find('.product-image-wrapper.back > img')
-                                .attr('data-src');
-                            const link = $(this)
-                                .find('.product-item-info > a')
-                                ?.attr('href');
-                            const label = $(this)
-                                .find(
-                                    '.product-item-info > a > span > div > span',
-                                )
-                                .text();
-                            const itemDetailList = $(this).find(
-                                '.product-item-details',
-                            );
-                            const name = itemDetailList.find('a').text();
-                            const oldPrice = itemDetailList
-                                .find(
+                document
+                    .querySelectorAll('.product-items')
+                    .forEach((listItem) => {
+                        listItem
+                            .querySelectorAll('li.product-item')
+                            .forEach((item) => {
+                                const infoItem =
+                                    item.querySelector('.product-item-info');
+
+                                const image = infoItem
+                                    .querySelector(
+                                        '.product-image-wrapper.front > img',
+                                    )
+                                    .getAttribute('data-src');
+
+                                const imageHover = infoItem
+                                    .querySelector(
+                                        '.product-image-wrapper.back > img',
+                                    )
+                                    ?.getAttribute('data-src');
+
+                                const link = infoItem
+                                    .querySelector('a')
+                                    ?.getAttribute('href');
+
+                                const label = infoItem.querySelector(
+                                    'a > span > div > span',
+                                ).textContent;
+
+                                const itemDetailList = item.querySelector(
+                                    '.product-item-details',
+                                );
+
+                                const name =
+                                    itemDetailList.querySelector(
+                                        'a',
+                                    ).textContent;
+
+                                const oldPrice = itemDetailList.querySelector(
                                     '.old-price > span > span:nth-child(2) > span',
-                                )
-                                .text();
-                            const normalPrice = itemDetailList
-                                .find(
-                                    '.normal-price > span > span:nth-child(2) > span',
-                                )
-                                .text();
+                                )?.textContent;
 
-                            const slugId = link.split('/').slice(-1);
+                                const normalPrice =
+                                    itemDetailList.querySelector(
+                                        '.normal-price > span > span:nth-child(2) > span',
+                                    )?.textContent;
 
-                            productList.push({
-                                link: `${localUrl}/api/detail/${slugId}`,
-                                image: image ? image : '',
-                                imageHover: imageHover ? imageHover : '',
-                                label: label ? label : '',
-                                name: name ? name : '',
-                                oldPrice: oldPrice ? oldPrice : '',
-                                normalPrice: normalPrice ? normalPrice : '',
+                                const slugId = link.split('/').slice(-1);
+
+                                productList.push({
+                                    link: `${localUrl}/api/detail/${slugId}`,
+                                    image: image ? image : '',
+                                    imageHover: imageHover ? imageHover : '',
+                                    label: label ? label : '',
+                                    name: name ? name : '',
+                                    oldPrice: oldPrice ? oldPrice : '',
+                                    normalPrice: normalPrice ? normalPrice : '',
+                                });
                             });
-                        });
-                });
+                    });
             });
-
-            const thumbList = await this.getThumbListProduct({url, reqParams})
-
-            for (let i = 0; i < productList.length; i++) {
-                productList[i] = {...productList[i], thumbList: thumbList[i]}
-            }
 
             return productList;
         } catch (error) {
@@ -216,129 +195,153 @@ const OnoffModel = {
         try {
             await axios(url + reqParams).then((response) => {
                 const html = response.data;
-                const $ = cheerio.load(html);
+                const document = parse(html);
 
                 const breakCrumb = [];
-                $(
-                    '.breadcrumbs > .items > li:not(:last-child, :first-child)',
-                    html,
-                ).each(function () {
-                    const text = $(this).find('a').text().trim() || '';
-                    const slugName =
-                        $(this)
-                            .find('a')
-                            .attr('href')
-                            ?.split('/')
-                            .slice(-1)
-                            .join('') || '';
-                    breakCrumb.push({
-                        text,
-                        slug: `${slugName}`,
+                document
+                    .querySelectorAll(
+                        '.breadcrumbs > .items > li:not(:last-child, :first-child)',
+                    )
+                    .forEach((li) => {
+                        const text =
+                            li.querySelector('a')?.textContent.trim() || '';
+                        const slugName =
+                            li
+                                .querySelector('a')
+                                ?.getAttribute('href')
+                                ?.split('/')
+                                .slice(-1)
+                                .join('') || '';
+                        breakCrumb.push({
+                            text,
+                            slug: `${slugName}`,
+                        });
                     });
-                });
 
-                const name = $('.product-info-main', html)
-                    .find('div:first-child > h1 > span')
-                    .text();
+                const name = document
+                    .querySelector('.product-info-main')
+                    ?.querySelector('div:first-child > h1 > span')?.textContent;
 
-                const sold = $('.product-info-main', html)
-                    .find('div:nth-child(2) > .sold')
-                    .text();
+                const sold = document
+                    .querySelector('.product-info-main')
+                    ?.querySelector('div:nth-child(2) > .sold')?.textContent;
 
-                const sku = $('.product-info-main', html)
-                    .find('div:nth-child(2) > div:nth-child(2)')
-                    .find('.value')
-                    .text();
+                const sku = document
+                    .querySelector('.product-info-main')
+                    ?.querySelector('div:nth-child(2) > div:nth-child(2)')
+                    ?.querySelector('.value')?.textContent;
 
-                const oldPrice = $('.old-price', html)
-                    .find('.price')
-                    .first()
-                    .text();
+                const oldPrice = document
+                    .querySelector('.old-price')
+                    ?.querySelector('.price').firstChild?.textContent;
 
-                const normalPrice = $('.normal-price', html)
-                    .find('.price')
-                    .first()
-                    .text();
+                const normalPrice = document
+                    .querySelector('.normal-price')
+                    ?.querySelector('.price').firstChild?.textContent;
 
-                const image = $('.product.media', html).find('img').attr('src');
+                const image = document
+                    .querySelector('.product.media')
+                    ?.querySelector('img')
+                    ?.getAttribute('src');
 
                 const sizeChart = {};
                 sizeChart.mobile =
-                    $('.sizechart > img.size-mobile', html).attr('src') || '';
-                sizeChart.desctop =
-                    $('.sizechart > img.size-desktop', html).attr('src') || '';
+                    document
+                        .querySelector('.sizechart > img.size-mobile')
+                        ?.getAttribute('src') || '';
+                sizeChart.desktop =
+                    document
+                        .querySelector('.sizechart > img.size-desktop')
+                        ?.getAttribute('src') || '';
 
                 const featureList = [];
-                $('.feature > div > div', html).each(function () {
-                    const icon = $(this).find('img').attr('src') || '';
-                    const title = $(this).find('h3').text() || '';
-                    const desc = $(this).find('p').text() || '';
+                document
+                    .querySelectorAll('.feature > div > div')
+                    .forEach((item) => {
+                        const icon =
+                            item.querySelector('img')?.getAttribute('src') ||
+                            '';
+                        const title =
+                            item.querySelector('h3')?.textContent || '';
+                        const desc = item.querySelector('p')?.textContent || '';
 
-                    featureList.push({ icon, title, desc });
-                });
+                        featureList.push({ icon, title, desc });
+                    });
 
                 const materialList = [];
-                $('.material > div', html).each(function () {
-                    const per = $(this).find('p').first().text() || '';
-                    const name = $(this).find('p').last().text() || '';
+                document.querySelectorAll('.material > div').forEach((item) => {
+                    const per =
+                        item.querySelector('p:nth-child(1)')?.textContent || '';
+                    const name =
+                        item.querySelector('p:nth-child(2)')?.textContent || '';
                     materialList.push({ per, name });
                 });
 
                 let content = [];
-                $(
-                    '.description > div > div.pagebuilder-column:first-child > h2',
-                    html,
-                ).each(function () {
-                    const title = $(this).text() || '';
-                    content.push({ title });
-                });
+                document
+                    .querySelectorAll(
+                        '.description > div > div.pagebuilder-column:first-child > h2',
+                        html,
+                    )
+                    .forEach((item) => {
+                        const title = item?.textContent || '';
+                        content.push({ title });
+                    });
 
-                $(
-                    '.description > div > div.pagebuilder-column:first-child > div',
-                    html,
-                ).each(function (i) {
-                    const desc = $(this).find('p').text() || '';
-                    const listDesc = [];
+                document
+                    .querySelectorAll(
+                        '.description > div > div.pagebuilder-column:first-child > div',
+                    )
+                    .forEach((item, i) => {
+                        const desc = item.querySelector('p')?.textContent || '';
+                        const listDesc = [];
 
-                    $(this)
-                        .find('ul > li')
-                        .each(function () {
-                            const item = $(this).text() || '';
+                        item.querySelectorAll('ul > li').forEach((liItem) => {
+                            const item = liItem?.textContent || '';
                             listDesc.push(item);
                         });
-                    content[i] = { ...content[i], desc, listDesc };
-                });
+                        content[i] = { ...content[i], desc, listDesc };
+                    });
 
                 const productRelative = [];
-                $('.product-items > div', html).each(function () {
-                    const image = $(this).find('img').attr('data-src') || '';
-                    const name =
-                        $(this).find('.product-item-name > a').text() || '';
-                    const normalPrice =
-                        $(this).find('.normal-price').find('.price').text() ||
-                        '';
-                    const oldPrice =
-                        $(this).find('.old-price').find('.price').text() || '';
-                    const label =
-                        $(this).find('.product-label > span').text() || '';
-                    const slugId =
-                        $(this)
-                            .find('a')
-                            .first()
-                            .attr('href')
-                            .split('/')
-                            .slice(-1)
-                            .join('') || '';
+                document
+                    .querySelectorAll('.product-items > div')
+                    .forEach((item) => {
+                        const image =
+                            item
+                                .querySelector('img')
+                                ?.getAttribute('data-src') || '';
+                        const name =
+                            item.querySelector('.product-item-name > a')
+                                ?.textContent || '';
+                        const normalPrice =
+                            item
+                                .querySelector('.normal-price')
+                                ?.querySelector('.price')?.textContent || '';
+                        const oldPrice =
+                            item
+                                .querySelector('.old-price')
+                                ?.querySelector('.price')?.textContent || '';
+                        const label =
+                            item.querySelector('.product-label > span')
+                                ?.textContent || '';
+                        const slugId =
+                            item
+                                .querySelector('a:first-child')
+                                ?.getAttribute('href')
+                                .split('/')
+                                .slice(-1)
+                                .join('') || '';
 
-                    productRelative.push({
-                        image,
-                        name,
-                        normalPrice,
-                        oldPrice,
-                        label,
-                        slugId,
+                        productRelative.push({
+                            image,
+                            name,
+                            normalPrice,
+                            oldPrice,
+                            label,
+                            slugId,
+                        });
                     });
-                });
 
                 detailList.push({
                     breakCrumb,
